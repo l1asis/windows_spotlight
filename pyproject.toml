@@ -11,7 +11,7 @@ license = { file = "LICENSE" }
 dependencies = []
 
 [project.scripts]
-winspot = "src.get_image_size:main"
+winspot = "src.windows_spotlight:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
