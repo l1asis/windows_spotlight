@@ -66,6 +66,13 @@ def get_image_size(file_path: str) -> tuple[int, int]:
     return (img.width, img.height)
 
 
+def try_get_image_size(file_path: str) -> tuple[int, int] | None:
+    try:
+        return get_image_size(file_path)
+    except Exception:
+        return None
+
+
 def get_image_size_from_bytesio(
     input: io.BufferedReader, buffer_size: int
 ) -> tuple[int, int]:
@@ -271,4 +278,4 @@ def main(argv: typing.Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
