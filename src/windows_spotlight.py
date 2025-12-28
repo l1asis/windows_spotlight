@@ -2,8 +2,11 @@ import argparse
 import ctypes
 import os
 import shutil
+import sys
 from ctypes import wintypes
 from typing import Literal
+
+from .get_image_size import try_get_image_size
 
 
 def get_user_sid() -> str | None:
@@ -110,7 +113,19 @@ def dump_windows_spotlight(
             source_file = os.path.join(assets_path, filename)
             if os.path.isfile(source_file):
                 output_file = os.path.join(output_directory, f"{filename}.jpg")
-                shutil.copy2(source_file, output_file)
+
+                if orientation != "both":
+                    size = try_get_image_size(output_file)
+                    if size is None:
+                        continue
+                    w, h = size
+                    is_landscape = w >= h
+                    if (orientation == "landscape" and is_landscape) or (
+                        orientation == "portrait" and not is_landscape
+                    ):
+                        shutil.copy2(source_file, output_file)
+                else:
+                    shutil.copy2(source_file, output_file)
 
     if extract_lockscreen and lockscreen_path and os.path.exists(lockscreen_path) and os.path.isdir(lockscreen_path):
         for name in os.listdir(lockscreen_path):
@@ -122,16 +137,48 @@ def dump_windows_spotlight(
                         shutil.copy2(source_file, output_file)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="windows_spotlight", description="Extract Windows Spotlight wallpapers.")
-    parser.add_argument("-a", "--assets", action="store_true", help="Extract cached wallpapers from Assets folder")
-    parser.add_argument("-d", "--desktop", action="store_true", help="Extract current desktop wallpaper")
-    parser.add_argument("-l", "--lockscreen", action="store_true", help="Extract current lock screen wallpaper (Requires admin privileges or ownership)")
-    parser.add_argument("-r", "--orientation", type=str, default="both", choices=["landscape", "portrait", "both"], help="Filter wallpapers by orientation (Only for Assets wallpapers)")
-    parser.add_argument("-o", "--out", type=str, default=".\\WindowsSpotlightWallpapers", help="Destination directory for extracted wallpapers")
-    parser.add_argument("-c", "--clean", action="store_true", help="Clean the destination directory before extraction")
-    
-    args = parser.parse_args()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="windows_spotlight", description="Extract Windows Spotlight wallpapers."
+    )
+    parser.add_argument(
+        "-a",
+        "--assets",
+        action="store_true",
+        help="Extract cached wallpapers from Assets folder",
+    )
+    parser.add_argument(
+        "-d", "--desktop", action="store_true", help="Extract current desktop wallpaper"
+    )
+    parser.add_argument(
+        "-l",
+        "--lockscreen",
+        action="store_true",
+        help="Extract current lock screen wallpaper (Requires admin privileges or ownership)",
+    )
+    parser.add_argument(
+        "-r",
+        "--orientation",
+        type=str,
+        default="both",
+        choices=["landscape", "portrait", "both"],
+        help="Filter wallpapers by orientation (Only for Assets wallpapers)",
+    )
+    parser.add_argument(
+        "-o",
+        "--out",
+        type=str,
+        default=".\\WindowsSpotlightWallpapers",
+        help="Destination directory for extracted wallpapers",
+    )
+    parser.add_argument(
+        "-c",
+        "--clean",
+        action="store_true",
+        help="Clean the destination directory before extraction",
+    )
+
+    args = parser.parse_args(argv)
 
     if not args.assets and not args.desktop and not args.lockscreen:
         args.assets = True
@@ -146,3 +193,8 @@ if __name__ == "__main__":
         output_directory=args.out,
         clean_output_directory=args.clean,
     )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
