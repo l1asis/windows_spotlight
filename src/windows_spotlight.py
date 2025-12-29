@@ -1,5 +1,6 @@
 import argparse
 import ctypes
+import hashlib
 import os
 import shutil
 import sys
@@ -11,6 +12,7 @@ from .get_image_size import try_get_image_size
 
 def get_user_sid() -> str | None:
     """Retrieves the current user's SID as a string."""
+
     # Define constants
     TOKEN_QUERY = 0x0008
     TOKEN_USER = 1
@@ -80,11 +82,66 @@ def clean_directory(directory_path: str) -> None:
             print(f"Failed to delete {entry.path}. Reason: {e}")
 
 
+def next_available_filename(file_path: str) -> str:
+    """Generates the next available filename by appending a number if necessary."""
+    base, extension = os.path.splitext(file_path)
+    counter = 1
+    while os.path.exists(file_path):
+        file_path = f"{base} ({counter}){extension}"
+        counter += 1
+    return file_path
+
+
+def _conditional_copy_unique(
+    source_file: str,
+    output_file: str,
+    skip_existing: bool,
+) -> None:
+    if skip_existing:
+        output_file, is_unique = next_available_filename_check_hash(output_file)
+        if is_unique:
+            shutil.copy2(source_file, output_file)
+    else:
+        output_file = next_available_filename(output_file)
+        shutil.copy2(source_file, output_file)
+
+
+def next_available_filename_check_hash(file_path: str) -> tuple[str, bool]:
+    """
+    Generates the next available filename by appending a number if necessary,
+    and checks if the file content is identical to an existing file.
+
+    :param file_path: Path to the file to check.
+    :type file_path: str
+    :return: A tuple containing the next available filename and a boolean indicating
+             whether the file content is unique.
+    :rtype: tuple[str, bool]
+    """
+    if not os.path.exists(file_path):
+        return file_path, True
+
+    with open(file_path, "rb") as f:
+        existing_file_hash = hashlib.file_digest(f, "sha256").hexdigest()
+
+    base, extension = os.path.splitext(file_path)
+    counter = 1
+    while True:
+        new_file_path = f"{base} ({counter}){extension}"
+        if not os.path.exists(new_file_path):
+            return new_file_path, True
+        with open(new_file_path, "rb") as f:
+            new_file_hash = hashlib.file_digest(f, "sha256").hexdigest()
+        if new_file_hash == existing_file_hash:
+            return new_file_path, False
+        counter += 1
+
+
 def dump_windows_spotlight(
     extract_assets: bool = True,
     extract_desktop: bool = True,
     extract_lockscreen: bool = True,
     orientation: Literal["landscape", "portrait", "both"] = "both",
+    skip_existing: bool = False,
     output_directory: str = ".\\WindowsSpotlightWallpapers",
     clean_output_directory: bool = False,
 ) -> None:
@@ -106,7 +163,12 @@ def dump_windows_spotlight(
         clean_directory(output_directory)
 
     if extract_desktop and os.path.exists(desktop_path) and os.path.isfile(desktop_path):
-        shutil.copy2(desktop_path, os.path.join(output_directory, "TranscodedWallpaper.jpg"))
+        path_to_check = os.path.join(output_directory, "TranscodedWallpaper.jpg")
+        _conditional_copy_unique(
+            desktop_path,
+            path_to_check,
+            skip_existing,
+        )
 
     if extract_assets and os.path.exists(assets_path) and os.path.isdir(assets_path):
         for filename in os.listdir(assets_path):
@@ -123,9 +185,17 @@ def dump_windows_spotlight(
                     if (orientation == "landscape" and is_landscape) or (
                         orientation == "portrait" and not is_landscape
                     ):
-                        shutil.copy2(source_file, output_file)
+                        _conditional_copy_unique(
+                            source_file,
+                            output_file,
+                            skip_existing,
+                        )
                 else:
-                    shutil.copy2(source_file, output_file)
+                    _conditional_copy_unique(
+                        source_file,
+                        output_file,
+                        skip_existing,
+                    )
 
     if extract_lockscreen and lockscreen_path and os.path.exists(lockscreen_path) and os.path.isdir(lockscreen_path):
         for name in os.listdir(lockscreen_path):
@@ -134,7 +204,11 @@ def dump_windows_spotlight(
                     source_file = os.path.join(lockscreen_path, name, filename)
                     if os.path.isfile(source_file):
                         output_file = os.path.join(output_directory, f"LockScreen_{filename}.jpg")
-                        shutil.copy2(source_file, output_file)
+                        _conditional_copy_unique(
+                            source_file,
+                            output_file,
+                            skip_existing,
+                        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -165,6 +239,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Filter wallpapers by orientation (Only for Assets wallpapers)",
     )
     parser.add_argument(
+        "-s",
+        "--skip-existing",
+        action="store_true",
+        help="Skip existing files based on content hash (Only if consecutive name conflicts occur)",
+    )
+    parser.add_argument(
         "-o",
         "--out",
         type=str,
@@ -190,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         extract_desktop=args.desktop,
         extract_lockscreen=args.lockscreen,
         orientation=args.orientation,
+        skip_existing=args.skip_existing,
         output_directory=args.out,
         clean_output_directory=args.clean,
     )
