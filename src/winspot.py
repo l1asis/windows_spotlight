@@ -136,7 +136,7 @@ def get_user_sid() -> str | None:
     return None
 
 
-def clean_directory(directory_path: str) -> None:
+def clear_directory(directory_path: str) -> None:
     """Deletes all files and subdirectories in the specified directory."""
     for entry in os.scandir(directory_path):
         try:
@@ -230,7 +230,7 @@ def dump_windows_spotlight(
 
     os.makedirs(output_directory, exist_ok=True)
     if clean_output_directory:
-        clean_directory(output_directory)
+        clear_directory(output_directory)
 
     if extract_desktop and os.path.exists(desktop_path) and os.path.isfile(desktop_path):
         path_to_check = os.path.join(output_directory, "TranscodedWallpaper.jpg")
