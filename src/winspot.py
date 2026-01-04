@@ -233,12 +233,6 @@ def next_available_filename_check_hash(file_path: str) -> tuple[str, bool]:
 def reset_windows_spotlight() -> None:
     """Resets Windows Spotlight to try to fetch new wallpapers."""
 
-    if not get_user_confirmation(
-        "This will reset Windows Spotlight settings and may require admin privileges. Continue?",
-        is_strict=False,
-    ):
-        return
-
     # Terminate SystemSettings to unlock files
     pid = get_pid_by_name("SystemSettings.exe")
     if pid is not None:
@@ -411,6 +405,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Clean the destination directory before extraction",
     )
     parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset Windows Spotlight settings to fetch new wallpapers",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reset without confirmation (use with --reset)",
+    )
+    parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
     parser.add_argument(
@@ -425,20 +429,29 @@ def main(argv: list[str] | None = None) -> int:
         print(__about__)
         return 0
 
-    if not args.assets and not args.desktop and not args.lockscreen:
-        args.assets = True
-        args.desktop = True
-        args.lockscreen = True
+    if args.reset:
+        if args.force or get_user_confirmation(
+            "This will reset Windows Spotlight settings "
+            "and may require admin privileges. Continue?",
+            is_strict=False,
+        ):
+            reset_windows_spotlight()
+    else:
+        if not args.assets and not args.desktop and not args.lockscreen:
+            args.assets = True
+            args.desktop = True
+            args.lockscreen = True
 
-    dump_windows_spotlight(
-        extract_assets=args.assets,
-        extract_desktop=args.desktop,
-        extract_lockscreen=args.lockscreen,
-        orientation=args.orientation,
-        skip_existing=args.skip_existing,
-        output_directory=args.out,
-        clean_output_directory=args.clean,
-    )
+        dump_windows_spotlight(
+            extract_assets=args.assets,
+            extract_desktop=args.desktop,
+            extract_lockscreen=args.lockscreen,
+            orientation=args.orientation,
+            skip_existing=args.skip_existing,
+            output_directory=args.out,
+            clean_output_directory=args.clean,
+        )
+
     return 0
 
 
