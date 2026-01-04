@@ -20,7 +20,7 @@ def get_user_confirmation(prompt: str, is_strict: bool = False) -> bool:
     valid_yes = {"y", "yes", "yeah", "yep"}
     valid_no = {"n", "no", "nah", "nope"}
 
-    suffix = "(y/n)" if is_strict else "(y/N)" 
+    suffix = "(y/n)" if is_strict else "(y/N)"
 
     while True:
         response = input(f"{prompt} {suffix}: ").strip().lower()
@@ -389,7 +389,13 @@ def main(argv: list[str] | None = None) -> int:
         "-s",
         "--skip-existing",
         action="store_true",
-        help="Skip existing files based on content hash (Only if consecutive name conflicts occur)",
+        help="Skip download only if the specific target filename exists and matches",
+    )
+    parser.add_argument(
+        "-S",
+        "--prevent-duplicates",
+        action="store_true",
+        help="Skip download if the image content exists in ANY file in the folder",
     )
     parser.add_argument(
         "-o",
@@ -415,7 +421,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Force reset without confirmation (use with --reset)",
     )
     parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {__version__}"
+        "--version",
+        action="version",
+        help="Show program's version number and exit",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--about",
