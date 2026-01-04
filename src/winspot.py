@@ -11,6 +11,71 @@ from . import __about__, __version__
 from .get_image_size import try_get_image_size
 
 
+def get_pid_by_name(process_name: str) -> int | None:
+    """Retrieves the PID of a process by its name."""
+
+    # Define constants
+    TH32CS_SNAPPROCESS = 0x00000002
+
+    # Define structures
+    class PROCESSENTRY32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(wintypes.ULONG)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.CHAR * wintypes.MAX_PATH),
+        ]
+
+    # Load necessary Windows libraries
+    kernel32 = ctypes.windll.kernel32
+
+    # Define function prototypes
+    # HANDLE CreateToolhelp32Snapshot([in] DWORD dwFlags, [in] DWORD th32ProcessID)
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+
+    # BOOL Process32First([in] HANDLE hSnapshot, [out] LPPROCESSENTRY32 lppe)
+    kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+    kernel32.Process32First.restype = wintypes.BOOL
+
+    # BOOL Process32Next([in] HANDLE hSnapshot, [out] LPPROCESSENTRY32 lppe)
+    kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32)]
+    kernel32.Process32Next.restype = wintypes.BOOL
+
+    # HANDLE CloseHandle([in] HANDLE hObject)
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    # Create snapshot of all processes
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == wintypes.HANDLE(-1).value:
+        return None
+
+    entry = PROCESSENTRY32()
+    entry.dwSize = ctypes.sizeof(PROCESSENTRY32)
+
+    if not kernel32.Process32First(snapshot, ctypes.byref(entry)):
+        kernel32.CloseHandle(snapshot)
+        return None
+
+    pid = None
+    while True:
+        if entry.szExeFile.decode().lower() == process_name.lower():
+            pid = entry.th32ProcessID
+            break
+        if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+            break
+
+    kernel32.CloseHandle(snapshot)
+    return pid
+
+
 def get_user_sid() -> str | None:
     """Retrieves the current user's SID as a string."""
 
@@ -218,7 +283,9 @@ def dump_windows_spotlight(
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the command-line interface."""
-    parser = argparse.ArgumentParser(description="Extract Windows Spotlight wallpapers.")
+    parser = argparse.ArgumentParser(
+        description="Extract Windows Spotlight wallpapers."
+    )
     parser.add_argument(
         "-a",
         "--assets",
@@ -262,9 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Clean the destination directory before extraction",
     )
     parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}"
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
     parser.add_argument(
         "--about",
