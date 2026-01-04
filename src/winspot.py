@@ -3,7 +3,10 @@ import ctypes
 import hashlib
 import os
 import shutil
+import signal
+import subprocess
 import sys
+import time
 from ctypes import wintypes
 from typing import Literal
 
@@ -204,6 +207,58 @@ def next_available_filename_check_hash(file_path: str) -> tuple[str, bool]:
         if new_file_hash == existing_file_hash:
             return new_file_path, False
         counter += 1
+
+
+def reset_windows_spotlight() -> None:
+    """Resets Windows Spotlight to try to fetch new wallpapers."""
+
+    # Terminate SystemSettings to unlock files
+    pid = get_pid_by_name("SystemSettings.exe")
+    if pid is not None:
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(1)  # Give it a moment to terminate
+
+    user_profile_path = os.getenv("USERPROFILE")
+    if not user_profile_path:
+        user_profile_path = "C:\\Users\\Default"
+
+    settings_path = f"{user_profile_path}\\AppData\\Local\\Packages\\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\\Settings"
+    themes_path = f"{user_profile_path}\\AppData\\Roaming\\Microsoft\\Windows\\Themes"
+
+    if os.path.exists(settings_path) and os.path.isdir(settings_path):
+        clear_directory(settings_path)
+
+    transcoded_wallpaper_path = os.path.join(themes_path, "TranscodedWallpaper")
+    if os.path.exists(transcoded_wallpaper_path) and os.path.isfile(transcoded_wallpaper_path):
+        os.remove(transcoded_wallpaper_path)
+
+    # Re-register the Spotlight package via PowerShell
+    try:
+        subprocess.run(
+            [
+                "powershell",
+                "-ExecutionPolicy",
+                "Unrestricted",
+                "-Command",
+                (
+                    r"Get-AppxPackage -allusers Microsoft.Windows.ContentDeliveryManager | "
+                    r'Foreach {Add-AppxPackage -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppXManifest.xml"}'
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError:
+        pass
+
+    # Restart the Explorer process
+    pid = get_pid_by_name("explorer.exe")
+    if pid is not None:
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(1)  # Give it a moment to terminate
+
+    subprocess.Popen(["explorer.exe"])
 
 
 def dump_windows_spotlight(
