@@ -160,9 +160,9 @@ def get_user_sid() -> str | None:
     return None
 
 
-def clear_directory(directory_path: str) -> None:
+def clear_directory(path: str) -> None:
     """Deletes all files and subdirectories in the specified directory."""
-    for entry in os.scandir(directory_path):
+    for entry in os.scandir(path):
         try:
             if entry.is_file() or entry.is_symlink():
                 os.unlink(entry.path)
@@ -172,62 +172,77 @@ def clear_directory(directory_path: str) -> None:
             print(f"Failed to delete {entry.path}. Reason: {e}")
 
 
-def next_available_filename(file_path: str) -> str:
-    """Generates the next available filename by appending a number if necessary."""
-    base, extension = os.path.splitext(file_path)
-    counter = 1
-    while os.path.exists(file_path):
-        file_path = f"{base} ({counter}){extension}"
-        counter += 1
-    return file_path
-
-
-def _conditional_copy_unique(
-    source_file: str,
-    output_file: str,
-    skip_existing: bool,
-) -> None:
-    """
-    Copies the source file to the output file,
-    skipping existing files based on content hash.
-    """
-    if skip_existing:
-        output_file, is_unique = next_available_filename_check_hash(output_file)
-        if is_unique:
-            shutil.copy2(source_file, output_file)
+def hash_file_sha256(path: str, chunk_size: int = 65536) -> str:
+    if hasattr(hashlib, "file_digest"):
+        with open(path, "rb") as f:
+            return hashlib.file_digest(f, "sha256").hexdigest()
     else:
-        output_file = next_available_filename(output_file)
-        shutil.copy2(source_file, output_file)
+        hasher = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(chunk_size), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
 
 
-def next_available_filename_check_hash(file_path: str) -> tuple[str, bool]:
+def smart_copy(
+    source_path: str,
+    output_path: str,
+    on_conflict: Literal["rename", "overwrite", "skip"] = "rename",
+    prevent_duplicates: bool = False,
+) -> bool:
     """
-    Generates the next available filename by appending a number if necessary,
-    and checks if the file content is identical to an existing file.
+    Copies a file with smart conflict resolution
+    and optional duplicate prevention based on file content.
 
-    :param file_path: Path to the file to check.
-    :type file_path: str
-    :return: A tuple containing the next available filename and a boolean indicating
-             whether the file content is unique.
-    :rtype: tuple[str, bool]
+    :param source_path: Path to the source file.
+    :type source_path: str
+    :param output_path: Path to the destination file.
+    :type output_path: str
+    :param on_conflict: Conflict resolution strategy when the destination file exists.
+    :type on_conflict: Literal["rename", "overwrite", "skip"]
+    :param prevent_duplicates: If True, prevents copying if a file with identical content already exists in the output directory.
+    :type prevent_duplicates: bool
+    :return: True if the file was copied, False otherwise.
+    :rtype: bool
     """
-    if not os.path.exists(file_path):
-        return file_path, True
 
-    with open(file_path, "rb") as f:
-        existing_file_hash = hashlib.file_digest(f, "sha256").hexdigest()
+    if not os.path.exists(source_path):
+        return False
 
-    base, extension = os.path.splitext(file_path)
-    counter = 1
-    while True:
-        new_file_path = f"{base} ({counter}){extension}"
-        if not os.path.exists(new_file_path):
-            return new_file_path, True
-        with open(new_file_path, "rb") as f:
-            new_file_hash = hashlib.file_digest(f, "sha256").hexdigest()
-        if new_file_hash == existing_file_hash:
-            return new_file_path, False
-        counter += 1
+    source_size = os.path.getsize(source_path)
+    source_hash = None
+    output_dir = os.path.dirname(output_path) or "."
+
+    if prevent_duplicates and os.path.exists(output_dir):
+        for entry in os.scandir(output_dir):
+            if entry.is_file() and entry.stat().st_size == source_size:
+                if source_hash is None:
+                    source_hash = hash_file_sha256(source_path)
+                if hash_file_sha256(entry.path) == source_hash:
+                    return False  # Content exists (anywhere), skip.
+
+    if os.path.exists(output_path):
+        if on_conflict == "skip":
+            return False
+        elif on_conflict == "overwrite":
+            pass
+        elif on_conflict == "rename":
+            base, extension = os.path.splitext(output_path)
+            counter = 1
+            while os.path.exists(output_path):
+                # Optimization: Only rename if content is actually DIFFERENT.
+                # If file.txt exists and is identical, we shouldn't make file (1).txt
+                if os.path.getsize(output_path) == source_size:
+                    if source_hash is None:
+                        source_hash = hash_file_sha256(source_path)
+                    if hash_file_sha256(output_path) == source_hash:
+                        return False  # Skip, don't create a numbered duplicate
+                output_path = f"{base} ({counter}){extension}"
+                counter += 1
+
+    os.makedirs(output_dir, exist_ok=True)
+    shutil.copy2(source_path, output_path)
+    return True
 
 
 def reset_windows_spotlight() -> None:
@@ -282,79 +297,111 @@ def reset_windows_spotlight() -> None:
     subprocess.Popen(["explorer.exe"])
 
 
-def dump_windows_spotlight(
-    extract_assets: bool = True,
-    extract_desktop: bool = True,
-    extract_lockscreen: bool = True,
+def extract_wallpapers(
+    cached: bool = True,
+    desktop: bool = True,
+    lockscreen: bool = True,
     orientation: Literal["landscape", "portrait", "both"] = "both",
-    skip_existing: bool = False,
-    output_directory: str = ".\\WindowsSpotlightWallpapers",
-    clean_output_directory: bool = False,
+    on_conflict: Literal["rename", "overwrite", "skip"] = "rename",
+    prevent_duplicates: bool = False,
+    output_dir: str = ".\\WindowsSpotlightWallpapers",
+    clear_output: bool = False,
 ) -> None:
-    """Extracts Windows Spotlight wallpapers to the specified output directory."""
-    user_profile_path = os.getenv("USERPROFILE")
-    if not user_profile_path:
-        user_profile_path = "C:\\Users\\Default"
+    """Extracts Windows Spotlight wallpapers based on the specified options."""
 
-    desktop_path = f"{user_profile_path}\\AppData\\Roaming\\Microsoft\\Windows\\Themes\\TranscodedWallpaper"
-    assets_path = f"{user_profile_path}\\AppData\\Local\\Packages\\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\\LocalState\\Assets"
+    app_data = os.getenv("APPDATA")
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if not app_data or not local_app_data:
+        return  # Cannot proceed without these environment variables
+
+    assets_path = f"{local_app_data}\\Packages\\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\\LocalState\\Assets"
+    iris_service_path = f"{local_app_data}\\Packages\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\LocalCache\\Microsoft\\IrisService"
+    desktop_path = f"{app_data}\\Microsoft\\Windows\\Themes\\TranscodedWallpaper"
     lockscreen_path = None
-    if extract_lockscreen and (user_sid := get_user_sid()):
+    if lockscreen and (user_sid := get_user_sid()):
         lockscreen_path = f"C:\\ProgramData\\Microsoft\\Windows\\SystemData\\{user_sid}\\ReadOnly"
         if os.access(lockscreen_path, os.R_OK):
             lockscreen_path = None
 
-    os.makedirs(output_directory, exist_ok=True)
-    if clean_output_directory:
-        clear_directory(output_directory)
+    os.makedirs(output_dir, exist_ok=True)
+    if clear_output:
+        clear_directory(output_dir)
 
-    if extract_desktop and os.path.exists(desktop_path) and os.path.isfile(desktop_path):
-        path_to_check = os.path.join(output_directory, "TranscodedWallpaper.jpg")
-        _conditional_copy_unique(
+    if desktop and os.path.exists(desktop_path) and os.path.isfile(desktop_path):
+        smart_copy(
             desktop_path,
-            path_to_check,
-            skip_existing,
+            os.path.join(output_dir, "Desktop.jpg"),
+            on_conflict,
+            prevent_duplicates,
         )
 
-    if extract_assets and os.path.exists(assets_path) and os.path.isdir(assets_path):
-        for filename in os.listdir(assets_path):
-            source_file = os.path.join(assets_path, filename)
-            if os.path.isfile(source_file):
-                output_file = os.path.join(output_directory, f"{filename}.jpg")
+    if cached:
+        if os.path.exists(iris_service_path) and os.path.isdir(iris_service_path):
+            for dirpath, _, filenames in os.walk(iris_service_path):
+                for filename in filenames:
+                    if filename.lower().endswith((".jpg", ".jpeg")):
+                        source_file = os.path.join(dirpath, filename)
+                        if os.path.isfile(source_file):
+                            if orientation != "both":
+                                size = try_get_image_size(source_file)
+                                if size is None:
+                                    continue
+                                w, h = size
+                                is_landscape = w >= h
+                                if (orientation == "landscape" and is_landscape) or (
+                                    orientation == "portrait" and not is_landscape
+                                ):
+                                    output_file = os.path.join(
+                                        output_dir, f"{filename}.jpg"
+                                    )
+                                    smart_copy(
+                                        source_file,
+                                        output_file,
+                                        on_conflict,
+                                        prevent_duplicates,
+                                    )
 
-                if orientation != "both":
-                    size = try_get_image_size(output_file)
-                    if size is None:
-                        continue
-                    w, h = size
-                    is_landscape = w >= h
-                    if (orientation == "landscape" and is_landscape) or (
-                        orientation == "portrait" and not is_landscape
+        if os.path.exists(assets_path) and os.path.isdir(assets_path):
+            for entry in os.scandir(assets_path):
+                if entry.is_file():
+                    source_file = entry.path
+                    if orientation != "both":
+                        size = try_get_image_size(source_file)
+                        if size is None:
+                            continue
+                        w, h = size
+                        is_landscape = w >= h
+                        if (orientation == "landscape" and is_landscape) or (
+                            orientation == "portrait" and not is_landscape
+                        ):
+                            output_file = os.path.join(output_dir, f"{entry.name}.jpg")
+                            smart_copy(
+                                source_file,
+                                output_file,
+                                on_conflict,
+                                prevent_duplicates,
+                            )
+
+    if lockscreen and lockscreen_path:
+        if os.path.exists(lockscreen_path) and os.path.isdir(lockscreen_path):
+            for entry_name in os.listdir(lockscreen_path):
+                if entry_name.lower().startswith("lockscreen"):
+                    for filename in os.listdir(
+                        os.path.join(lockscreen_path, entry_name)
                     ):
-                        _conditional_copy_unique(
-                            source_file,
-                            output_file,
-                            skip_existing,
+                        source_file = os.path.join(
+                            lockscreen_path, entry_name, filename
                         )
-                else:
-                    _conditional_copy_unique(
-                        source_file,
-                        output_file,
-                        skip_existing,
-                    )
-
-    if extract_lockscreen and lockscreen_path and os.path.exists(lockscreen_path) and os.path.isdir(lockscreen_path):
-        for name in os.listdir(lockscreen_path):
-            if name.lower().startswith("lockscreen"):
-                for filename in os.listdir(os.path.join(lockscreen_path, name)):
-                    source_file = os.path.join(lockscreen_path, name, filename)
-                    if os.path.isfile(source_file):
-                        output_file = os.path.join(output_directory, f"LockScreen_{filename}.jpg")
-                        _conditional_copy_unique(
-                            source_file,
-                            output_file,
-                            skip_existing,
-                        )
+                        if os.path.isfile(source_file):
+                            output_file = os.path.join(
+                                output_dir, f"Lockscreen_{filename}.jpg"
+                            )
+                            smart_copy(
+                                source_file,
+                                output_file,
+                                on_conflict,
+                                prevent_duplicates,
+                            )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -363,10 +410,10 @@ def main(argv: list[str] | None = None) -> int:
         description="Extract Windows Spotlight wallpapers."
     )
     parser.add_argument(
-        "-a",
-        "--assets",
+        "-c",
+        "--cached",
         action="store_true",
-        help="Extract cached wallpapers from Assets folder",
+        help="Extract cached wallpapers from IrisService and Assets folders",
     )
     parser.add_argument(
         "-d", "--desktop", action="store_true", help="Extract current desktop wallpaper"
@@ -375,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
         "-l",
         "--lockscreen",
         action="store_true",
-        help="Extract current lock screen wallpaper (Requires admin privileges or ownership)",
+        help="Extract current lock screen wallpaper (if accessible)",
     )
     parser.add_argument(
         "-r",
@@ -383,32 +430,33 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default="both",
         choices=["landscape", "portrait", "both"],
-        help="Filter wallpapers by orientation (Only for Assets wallpapers)",
+        help="Filter wallpapers by orientation",
     )
     parser.add_argument(
         "-s",
-        "--skip-existing",
-        action="store_true",
-        help="Skip download only if the specific target filename exists and matches",
+        "--on-conflict",
+        type=str,
+        default="rename",
+        choices=["rename", "overwrite", "skip"],
+        help="Action to take when a file with the same name exists in the output directory",
     )
     parser.add_argument(
         "-S",
         "--prevent-duplicates",
         action="store_true",
-        help="Skip download if the image content exists in ANY file in the folder",
+        help="Prevent saving duplicate images based on content",
     )
     parser.add_argument(
         "-o",
         "--out",
         type=str,
         default=".\\WindowsSpotlightWallpapers",
-        help="Destination directory for extracted wallpapers",
+        help="Output directory for extracted wallpapers",
     )
     parser.add_argument(
-        "-c",
-        "--clean",
+        "--clear",
         action="store_true",
-        help="Clean the destination directory before extraction",
+        help="Clear the output directory before extraction",
     )
     parser.add_argument(
         "--reset",
@@ -446,19 +494,20 @@ def main(argv: list[str] | None = None) -> int:
         ):
             reset_windows_spotlight()
     else:
-        if not args.assets and not args.desktop and not args.lockscreen:
-            args.assets = True
+        if not args.cached and not args.desktop and not args.lockscreen:
+            args.cached = True
             args.desktop = True
             args.lockscreen = True
 
-        dump_windows_spotlight(
-            extract_assets=args.assets,
-            extract_desktop=args.desktop,
-            extract_lockscreen=args.lockscreen,
+        extract_wallpapers(
+            cached=args.cached,
+            desktop=args.desktop,
+            lockscreen=args.lockscreen,
             orientation=args.orientation,
-            skip_existing=args.skip_existing,
-            output_directory=args.out,
-            clean_output_directory=args.clean,
+            on_conflict=args.on_conflict,
+            prevent_duplicates=args.prevent_duplicates,
+            output_dir=args.out,
+            clear_output=args.clear,
         )
 
     return 0
