@@ -341,6 +341,7 @@ def extract_wallpapers(
                 for filename in filenames:
                     if filename.lower().endswith((".jpg", ".jpeg")):
                         source_file = os.path.join(dirpath, filename)
+                        output_file = os.path.join(output_dir, filename)
                         if os.path.isfile(source_file):
                             if orientation != "both":
                                 size = try_get_image_size(source_file)
@@ -351,20 +352,26 @@ def extract_wallpapers(
                                 if (orientation == "landscape" and is_landscape) or (
                                     orientation == "portrait" and not is_landscape
                                 ):
-                                    output_file = os.path.join(
-                                        output_dir, f"{filename}.jpg"
-                                    )
                                     smart_copy(
                                         source_file,
                                         output_file,
                                         on_conflict,
                                         prevent_duplicates,
                                     )
+                            else:
+                                smart_copy(
+                                    source_file,
+                                    output_file,
+                                    on_conflict,
+                                    prevent_duplicates,
+                                )
+
 
         if os.path.exists(assets_path) and os.path.isdir(assets_path):
             for entry in os.scandir(assets_path):
                 if entry.is_file():
                     source_file = entry.path
+                    output_file = os.path.join(output_dir, f"{entry.name}.jpg")
                     if orientation != "both":
                         size = try_get_image_size(source_file)
                         if size is None:
@@ -374,13 +381,19 @@ def extract_wallpapers(
                         if (orientation == "landscape" and is_landscape) or (
                             orientation == "portrait" and not is_landscape
                         ):
-                            output_file = os.path.join(output_dir, f"{entry.name}.jpg")
                             smart_copy(
                                 source_file,
                                 output_file,
                                 on_conflict,
                                 prevent_duplicates,
                             )
+                    else:
+                        smart_copy(
+                            source_file,
+                            output_file,
+                            on_conflict,
+                            prevent_duplicates,
+                        )
 
     if lockscreen and lockscreen_path:
         if os.path.exists(lockscreen_path) and os.path.isdir(lockscreen_path):
