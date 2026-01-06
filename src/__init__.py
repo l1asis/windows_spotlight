@@ -1,4 +1,7 @@
+import logging
 from importlib.metadata import PackageNotFoundError, version
+
+__name__ = "winspot"
 
 try:
     __version__ = version("winspot")
@@ -31,3 +34,6 @@ __about__ = rf"""
 
   Made with respect for the Windows community.
 """
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())

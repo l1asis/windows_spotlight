@@ -10,8 +10,9 @@ import time
 from ctypes import wintypes
 from typing import Literal
 
-from . import __about__, __version__
+from . import __about__, __version__, logger
 from .get_image_size import try_get_image_size
+from .logger_config import setup_logging
 
 
 def get_user_confirmation(prompt: str, is_strict: bool = False) -> bool:
@@ -481,6 +482,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Force reset without confirmation (use with --reset)",
     )
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output for debugging",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress non-error output",
+    )
+    parser.add_argument(
+        "--silent",
+        action="store_true",
+        help="Suppress all output (overrides --verbose and --quiet)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         help="Show program's version number and exit",
@@ -497,6 +513,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.about:
         print(__about__)
         return 0
+
+    setup_logging(args.verbose, args.quiet, args.silent)
+
+    logger.info(f"WinSpot version {__version__} starting...")
 
     if args.reset:
         if args.force or get_user_confirmation(
