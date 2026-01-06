@@ -8,7 +8,7 @@ class CustomFormatter(logging.Formatter):
     """Custom logging formatter with colors based on log level."""
 
     dim = "\x1b[2m"
-    grey = "\x1b[38;21m"
+    cyan = "\x1b[36;21m"
     green = "\x1b[32;21m"
     yellow = "\x1b[33;21m"
     red = "\x1b[31;21m"
@@ -18,7 +18,7 @@ class CustomFormatter(logging.Formatter):
     FORMATTERS = {
         logging.INFO: logging.Formatter(f"{green}[%(levelname)s]{reset} %(message)s"),
         logging.DEBUG: logging.Formatter(
-            f"{grey}[%(levelname)s]{reset} {dim}%(asctime)s - %(filename)s:%(lineno)d{reset} %(message)s"
+            f"{cyan}[%(levelname)s]{reset} {dim}%(asctime)s - %(filename)s:%(lineno)d{reset} %(message)s"
         ),
         logging.WARNING: logging.Formatter(
             f"{yellow}[%(levelname)s]{reset} %(message)s"
