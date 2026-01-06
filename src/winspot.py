@@ -407,7 +407,7 @@ def extract_wallpapers(
                         )
                         if os.path.isfile(source_file):
                             output_file = os.path.join(
-                                output_dir, f"Lockscreen_{filename}.jpg"
+                                output_dir, filename
                             )
                             smart_copy(
                                 source_file,
