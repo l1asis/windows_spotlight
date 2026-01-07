@@ -15,7 +15,7 @@ from .get_image_size import try_get_image_size
 from .logger_config import setup_logging
 
 
-def get_user_confirmation(prompt: str, is_strict: bool = False) -> bool:
+def _get_user_confirmation(prompt: str, is_strict: bool = False) -> bool:
     """Prompts the user for a yes/no confirmation."""
 
     valid_yes = {"y", "yes", "yeah", "yep"}
@@ -36,7 +36,7 @@ def get_user_confirmation(prompt: str, is_strict: bool = False) -> bool:
         print(f"Invalid input '{response}'. Please enter 'y' or 'n'.")
 
 
-def get_pid_by_name(process_name: str) -> int | None:
+def _get_pid_by_name(process_name: str) -> int | None:
     """Retrieves the PID of a process by its name."""
 
     # Define constants
@@ -101,7 +101,7 @@ def get_pid_by_name(process_name: str) -> int | None:
     return pid
 
 
-def get_user_sid() -> str | None:
+def _get_user_sid() -> str | None:
     """Retrieves the current user's SID as a string."""
 
     # Define constants
@@ -161,7 +161,7 @@ def get_user_sid() -> str | None:
     return None
 
 
-def clear_directory(path: str) -> None:
+def _clear_directory(path: str) -> None:
     """Deletes all files and subdirectories in the specified directory."""
     for entry in os.scandir(path):
         try:
@@ -173,7 +173,7 @@ def clear_directory(path: str) -> None:
             print(f"Failed to delete {entry.path}. Reason: {e}")
 
 
-def hash_file_sha256(path: str, chunk_size: int = 65536) -> str:
+def _hash_file_sha256(path: str, chunk_size: int = 65536) -> str:
     if hasattr(hashlib, "file_digest"):
         with open(path, "rb") as f:
             return hashlib.file_digest(f, "sha256").hexdigest()
@@ -185,7 +185,7 @@ def hash_file_sha256(path: str, chunk_size: int = 65536) -> str:
         return hasher.hexdigest()
 
 
-def smart_copy(
+def _smart_copy(
     source_path: str,
     output_path: str,
     on_conflict: Literal["rename", "overwrite", "skip"] = "rename",
@@ -218,8 +218,8 @@ def smart_copy(
         for entry in os.scandir(output_dir):
             if entry.is_file() and entry.stat().st_size == source_size:
                 if source_hash is None:
-                    source_hash = hash_file_sha256(source_path)
-                if hash_file_sha256(entry.path) == source_hash:
+                    source_hash = _hash_file_sha256(source_path)
+                if _hash_file_sha256(entry.path) == source_hash:
                     return False  # Content exists (anywhere), skip.
 
     if os.path.exists(output_path):
@@ -235,8 +235,8 @@ def smart_copy(
                 # If file.txt exists and is identical, we shouldn't make file (1).txt
                 if os.path.getsize(output_path) == source_size:
                     if source_hash is None:
-                        source_hash = hash_file_sha256(source_path)
-                    if hash_file_sha256(output_path) == source_hash:
+                        source_hash = _hash_file_sha256(source_path)
+                    if _hash_file_sha256(output_path) == source_hash:
                         return False  # Skip, don't create a numbered duplicate
                 output_path = f"{base} ({counter}){extension}"
                 counter += 1
@@ -250,7 +250,7 @@ def reset_windows_spotlight() -> None:
     """Resets Windows Spotlight to try to fetch new wallpapers."""
 
     # Terminate SystemSettings to unlock files
-    pid = get_pid_by_name("SystemSettings.exe")
+    pid = _get_pid_by_name("SystemSettings.exe")
     if pid is not None:
         os.kill(pid, signal.SIGTERM)
         time.sleep(1)  # Give it a moment to terminate
@@ -263,7 +263,7 @@ def reset_windows_spotlight() -> None:
     themes_path = f"{user_profile_path}\\AppData\\Roaming\\Microsoft\\Windows\\Themes"
 
     if os.path.exists(settings_path) and os.path.isdir(settings_path):
-        clear_directory(settings_path)
+        _clear_directory(settings_path)
 
     transcoded_wallpaper_path = os.path.join(themes_path, "TranscodedWallpaper")
     if os.path.exists(transcoded_wallpaper_path) and os.path.isfile(transcoded_wallpaper_path):
@@ -290,7 +290,7 @@ def reset_windows_spotlight() -> None:
         pass
 
     # Restart the Explorer process
-    pid = get_pid_by_name("explorer.exe")
+    pid = _get_pid_by_name("explorer.exe")
     if pid is not None:
         os.kill(pid, signal.SIGTERM)
         time.sleep(1)  # Give it a moment to terminate
@@ -319,17 +319,17 @@ def extract_wallpapers(
     iris_service_path = f"{local_app_data}\\Packages\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\LocalCache\\Microsoft\\IrisService"
     desktop_path = f"{app_data}\\Microsoft\\Windows\\Themes\\TranscodedWallpaper"
     lockscreen_path = None
-    if lockscreen and (user_sid := get_user_sid()):
+    if lockscreen and (user_sid := _get_user_sid()):
         lockscreen_path = f"C:\\ProgramData\\Microsoft\\Windows\\SystemData\\{user_sid}\\ReadOnly"
         if not os.access(lockscreen_path, os.R_OK):
             lockscreen_path = None
 
     os.makedirs(output_dir, exist_ok=True)
     if clear_output:
-        clear_directory(output_dir)
+        _clear_directory(output_dir)
 
     if desktop and os.path.exists(desktop_path) and os.path.isfile(desktop_path):
-        smart_copy(
+        _smart_copy(
             desktop_path,
             os.path.join(output_dir, "Desktop.jpg"),
             on_conflict,
@@ -353,14 +353,14 @@ def extract_wallpapers(
                                 if (orientation == "landscape" and is_landscape) or (
                                     orientation == "portrait" and not is_landscape
                                 ):
-                                    smart_copy(
+                                    _smart_copy(
                                         source_file,
                                         output_file,
                                         on_conflict,
                                         prevent_duplicates,
                                     )
                             else:
-                                smart_copy(
+                                _smart_copy(
                                     source_file,
                                     output_file,
                                     on_conflict,
@@ -381,14 +381,14 @@ def extract_wallpapers(
                         if (orientation == "landscape" and is_landscape) or (
                             orientation == "portrait" and not is_landscape
                         ):
-                            smart_copy(
+                            _smart_copy(
                                 source_file,
                                 output_file,
                                 on_conflict,
                                 prevent_duplicates,
                             )
                     else:
-                        smart_copy(
+                        _smart_copy(
                             source_file,
                             output_file,
                             on_conflict,
@@ -409,7 +409,7 @@ def extract_wallpapers(
                             output_file = os.path.join(
                                 output_dir, filename
                             )
-                            smart_copy(
+                            _smart_copy(
                                 source_file,
                                 output_file,
                                 on_conflict,
@@ -519,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info(f"WinSpot version {__version__} starting...")
 
     if args.reset:
-        if args.force or get_user_confirmation(
+        if args.force or _get_user_confirmation(
             "This will reset Windows Spotlight settings "
             "and may require admin privileges. Continue?",
             is_strict=False,
