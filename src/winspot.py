@@ -163,14 +163,15 @@ def _get_user_sid() -> str | None:
 
 def _clear_directory(path: str) -> None:
     """Deletes all files and subdirectories in the specified directory."""
+    logger.debug("Clearing directory: %s", path)
     for entry in os.scandir(path):
         try:
             if entry.is_file() or entry.is_symlink():
                 os.unlink(entry.path)
             elif entry.is_dir():
                 shutil.rmtree(entry.path)
-        except Exception as e:
-            print(f"Failed to delete {entry.path}. Reason: {e}")
+        except Exception:
+            logger.error("Failed to delete %s", entry.path, exc_info=True)
 
 
 def _hash_file_sha256(path: str, chunk_size: int = 65536) -> str:
@@ -243,15 +244,18 @@ def _smart_copy(
 
     os.makedirs(output_dir, exist_ok=True)
     shutil.copy2(source_path, output_path)
+    logger.debug("Copied: %s -> %s", os.path.basename(source_path), os.path.basename(output_path))
     return True
 
 
 def reset_windows_spotlight() -> None:
     """Resets Windows Spotlight to try to fetch new wallpapers."""
+    logger.info("Starting Windows Spotlight reset...")
 
     # Terminate SystemSettings to unlock files
     pid = _get_pid_by_name("SystemSettings.exe")
     if pid is not None:
+        logger.debug("Terminating SystemSettings.exe (PID: %d)", pid)
         os.kill(pid, signal.SIGTERM)
         time.sleep(1)  # Give it a moment to terminate
 
@@ -263,13 +267,18 @@ def reset_windows_spotlight() -> None:
     themes_path = f"{user_profile_path}\\AppData\\Roaming\\Microsoft\\Windows\\Themes"
 
     if os.path.exists(settings_path) and os.path.isdir(settings_path):
+        logger.debug("Clearing Spotlight settings")
         _clear_directory(settings_path)
+    else:
+        logger.warning("Spotlight settings directory not found: %s", settings_path)
 
     transcoded_wallpaper_path = os.path.join(themes_path, "TranscodedWallpaper")
     if os.path.exists(transcoded_wallpaper_path) and os.path.isfile(transcoded_wallpaper_path):
+        logger.debug("Removing TranscodedWallpaper")
         os.remove(transcoded_wallpaper_path)
 
     # Re-register the Spotlight package via PowerShell
+    logger.debug("Re-registering ContentDeliveryManager package")
     try:
         subprocess.run(
             [
@@ -287,15 +296,17 @@ def reset_windows_spotlight() -> None:
             check=True,
         )
     except subprocess.CalledProcessError:
-        pass
+        logger.warning("Failed to re-register ContentDeliveryManager", exc_info=True)
 
     # Restart the Explorer process
     pid = _get_pid_by_name("explorer.exe")
     if pid is not None:
+        logger.debug("Restarting Explorer")
         os.kill(pid, signal.SIGTERM)
         time.sleep(1)  # Give it a moment to terminate
 
     subprocess.Popen(["explorer.exe"])
+    logger.info("Windows Spotlight reset completed")
 
 
 def extract_wallpapers(
@@ -309,11 +320,17 @@ def extract_wallpapers(
     clear_output: bool = False,
 ) -> None:
     """Extracts Windows Spotlight wallpapers based on the specified options."""
+    logger.info("Starting wallpaper extraction to: %s", output_dir)
+    logger.debug(
+        "Options: cached=%s, desktop=%s, lockscreen=%s, orientation=%s",
+        cached, desktop, lockscreen, orientation
+    )
 
     app_data = os.getenv("APPDATA")
     local_app_data = os.getenv("LOCALAPPDATA")
     if not app_data or not local_app_data:
-        return  # Cannot proceed without these environment variables
+        logger.error("Required environment variables APPDATA or LOCALAPPDATA not set")
+        return
 
     assets_path = f"{local_app_data}\\Packages\\Microsoft.Windows.ContentDeliveryManager_cw5n1h2txyewy\\LocalState\\Assets"
     iris_service_path = f"{local_app_data}\\Packages\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\LocalCache\\Microsoft\\IrisService"
@@ -322,13 +339,16 @@ def extract_wallpapers(
     if lockscreen and (user_sid := _get_user_sid()):
         lockscreen_path = f"C:\\ProgramData\\Microsoft\\Windows\\SystemData\\{user_sid}\\ReadOnly"
         if not os.access(lockscreen_path, os.R_OK):
+            logger.warning("Lock screen path not accessible (may require admin privileges)")
             lockscreen_path = None
 
     os.makedirs(output_dir, exist_ok=True)
     if clear_output:
+        logger.info("Clearing output directory")
         _clear_directory(output_dir)
 
     if desktop and os.path.exists(desktop_path) and os.path.isfile(desktop_path):
+        logger.debug("Extracting desktop wallpaper")
         _smart_copy(
             desktop_path,
             os.path.join(output_dir, "Desktop.jpg"),
@@ -337,6 +357,7 @@ def extract_wallpapers(
         )
 
     if cached:
+        logger.debug("Scanning cached wallpaper sources")
         if os.path.exists(iris_service_path) and os.path.isdir(iris_service_path):
             for dirpath, _, filenames in os.walk(iris_service_path):
                 for filename in filenames:
@@ -396,6 +417,7 @@ def extract_wallpapers(
                         )
 
     if lockscreen and lockscreen_path:
+        logger.debug("Extracting lock screen wallpapers")
         if os.path.exists(lockscreen_path) and os.path.isdir(lockscreen_path):
             for entry_name in os.listdir(lockscreen_path):
                 if entry_name.lower().startswith("lockscreen"):
@@ -415,6 +437,8 @@ def extract_wallpapers(
                                 on_conflict,
                                 prevent_duplicates,
                             )
+
+    logger.info("Wallpaper extraction completed")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -525,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
             is_strict=False,
         ):
             reset_windows_spotlight()
+        else:
+            logger.info("Reset cancelled by user")
     else:
         if not args.cached and not args.desktop and not args.lockscreen:
             args.cached = True
